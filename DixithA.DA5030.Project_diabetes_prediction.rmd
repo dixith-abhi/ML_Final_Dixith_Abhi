@@ -1,0 +1,460 @@
+---
+title: 'An Ensemble model to predict the risk of Diabetes: Development and Evaluation'
+author: "Abhijith Chandrashekar Dixith"
+date: "2024-04-15"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(psych)
+library(ggplot2)
+library(ggExtra)
+library(gmodels)
+library(caret)
+library(e1071)
+library(randomForest)
+library(dplyr)
+library(class)
+library(corrplot)
+library(stats)
+```
+
+The data I have chosen for the project is Diabetes dataset, through which we can predict the outcome of a person being diabetic or not. This is particularly important in the medical field today as over 60% of the US population are obese, which is a major risk indicator for type 2 diabetes directly. There are other important key indicators too which have a direct correlation such as Blood Glucose levels, Insulin that can be taken into account and our dataset has all these columns ready to use. There are some missing values in my dataset which I will replace them with their respective median values later.
+
+```{r warning=FALSE} 
+diabetes <- read.csv("https://raw.githubusercontent.com/dixith-abhi/ML_Final_Dixith_Abhi/main/diabetes_final_proj.csv")
+str(diabetes)
+```
+
+Phase 1: DATA EXPLORATION
+
+#scatterplot matrix using pairs.panels. This helps find out the relationship between all the features
+
+```{r}
+pairs.panels(diabetes)
+```
+
+#Plotting histograms of each feature
+
+#Histogram Glucose
+```{r}
+hist(diabetes$Glucose, xlab = "Glucose Levels", prob = TRUE)
+
+lines(density(diabetes$Glucose), col= "Blue",lwd=3)
+```
+
+#Histogram Blood Pressure
+```{r}
+hist(diabetes$BloodPressure, xlab = "Blood Pressure", prob = TRUE)
+
+lines(density(diabetes$BloodPressure), col= "Blue",lwd=3)
+```
+
+#Histogram BMI
+```{r}
+hist(diabetes$BMI, xlab = "BMI", prob = TRUE)
+
+lines(density(diabetes$BMI), col= "Blue",lwd=3)
+```
+
+#Histogram Pregnancies
+```{r}
+hist(diabetes$Pregnancies, xlab = "Pregnancies", prob = TRUE)
+
+lines(density(diabetes$Pregnancies), col= "Blue",lwd=3)
+```
+
+#Histogram Diabetes Pedigree Function
+```{r}
+hist(diabetes$DiabetesPedigreeFunction, xlab = "Diabetes Pedigree Function", prob = TRUE)
+
+lines(density(diabetes$DiabetesPedigreeFunction), col= "Blue",lwd=3)
+```
+
+#Histogram Age
+```{r}
+hist(diabetes$Age, xlab = "Age", prob = TRUE)
+
+lines(density(diabetes$Age), col= "Blue",lwd=3)
+```
+
+#Histogram Outcome
+```{r}
+hist(diabetes$Outcome, xlab = "Outcome",prob = TRUE)
+lines(density(diabetes$Outcome), col= "Blue",lwd=3)
+```
+
+#Correlation analysis using pearson method
+```{r}
+corr_mat <-cor(diabetes, method = c("pearson"))
+corrplot(corr_mat, method = "circle")
+```
+Inference: 
+Age and Pregnancies have a strong positive correlation
+Glucose and Outcome have a strong positive correlation, which was expected
+Insulin and Glucose have a positive correlation (as predicted too)
+Age and skinthickness have a very weak correlation
+
+#Outlier detection using boxplots
+
+#Glucose boxplot
+```{r}
+boxplot(diabetes$Glucose, ylab = "Glucose level")
+```
+
+#Blood pressure boxplot
+```{r}
+boxplot(diabetes$BloodPressure, ylab = "Blood Pressure")
+```
+
+#BMI boxplot
+```{r}
+boxplot(diabetes$BMI, ylab = "BMI")
+```
+
+#Pregnancies boxplot
+```{r}
+boxplot(diabetes$Pregnancies, ylab = "Pregnancies")
+```
+
+#Diabetes pedigree Function boxplot
+```{r}
+boxplot(diabetes$DiabetesPedigreeFunction, ylab = "Diabetes Pedigree Function")
+```
+
+#Age boxplot
+```{r}
+boxplot(diabetes$Age, ylab = "Age")
+```
+#Outcome boxplot
+```{r}
+boxplot(diabetes$Outcome, ylab = "Outcome")
+```
+Outliers are points or values that are significantly of a different than the most values and have extreme values. Having outliers will significantly tilt the statistic comparisons to a wrong direction and can lead to many anomalies.In order to stop that we need to identify them initially itself and find a way to eliminate them. Hoewever in our case we did not find many outliers in our dataset.
+
+#Summary of glucose, diabetespedigree and outcome
+```{r}
+summary(diabetes$Glucose)
+```
+
+```{r}
+summary(diabetes$DiabetesPedigreeFunction)
+```
+
+```{r}
+summary(diabetes$Outcome)
+```
+#Evaluation of distribution
+
+#Based on the histogram of glucose, Pregnancies, pedigree function and age
+
+The histogram is not normally distributed and is positively skewed or right skewed. This may be due to the presence of outliers or extreme values present above 100. In the case of Pregnancies, Pedigree function and age however it is skewed to the left extremely indicating that even younger people have alarmingly become prone to Diabetes.
+
+Phase 2: DATA CLEANING AND SHAPING
+
+#identification of missing values
+
+```{r}
+missing_col <- c("Glucose", "BloodPressure", "BMI", "SkinThickness", "Insulin")
+#missing values were only prevalent in the above used columns
+
+missing_val <- lapply(missing_col, function(col) {
+  sum(diabetes[[col]] == 0)
+})
+names(missing_val) <- missing_col
+missing_val
+```
+#data imputation of missing values
+
+```{r}
+for (col in missing_col) {
+  median_value <- median(diabetes[[col]][diabetes[[col]] > 0])
+  diabetes[[col]][diabetes[[col]] == 0] <- median_value
+}
+
+summary(diabetes[missing_col])
+```
+
+#Feature normalization
+
+```{r}
+#creating a function that can be called later to normalize
+normalize_z <- function(diabetes)
+{
+  #writing a for loop to go over columns of diabetes dataset and calculates mean, standard deviation for each column
+  for (col in names(diabetes)) {
+    if (is.numeric(diabetes[[col]])) {
+      mean_value <- mean(diabetes[[col]])
+      sd_value <- sd(diabetes[[col]])
+      diabetes[[col]] <- (diabetes[[col]] - mean_value) / sd_value
+    }
+  }
+  return(diabetes)
+}
+
+#normalizing the entire dataset
+normalized_data <- normalize_z(diabetes)
+head(normalized_data)
+```
+
+#Feature engineering using log transformation for Insulin and Glucose columns
+
+```{r}
+diabetes$log_insulin <- log(diabetes$Insulin)
+diabetes$log_glucose <- log(diabetes$Glucose)
+head(diabetes)
+```
+
+#As we can see, I have introduced two new columns log_insulin and log_glucose that have a decimal value below the value of 10.
+
+#Dimensionality reduction/PCA
+
+```{r}
+#PCA analysis
+pca_diabetes <- prcomp(diabetes, scale. = TRUE)
+
+print(pca_diabetes)
+```
+
+# Feature importance selection
+```{r}
+set.seed(100)
+random_diabetes <- randomForest(Outcome ~ ., data=diabetes, importance=TRUE)
+```
+
+```{r}
+importance(random_diabetes)
+```
+As we can see higher %incMSE indicates greater importance, Glucose and BMI have the highest importance in terms of feature whereas Blood Pressure, Skin thickness have the least importance in our dataset. The new columns introduced (log_insulin and log_glucose) roughly have the same importance values as that of their original counterparts which is a good sign. 
+
+MODEL CONSTRUCTION
+
+#creation of training & validation subsets
+
+```{r}
+diabetes_select <- diabetes %>% 
+  select(Pregnancies, Glucose, BloodPressure, SkinThickness, 
+         Insulin, BMI, DiabetesPedigreeFunction, Age, Outcome)
+
+# Normalize the data using min-max normalization
+normalize <- function(x) {
+  return((x - min(x)) / (max(x) - min(x)))
+}
+
+#applying normalization function
+diabetes_select_norm <- as.data.frame(lapply(diabetes_select[,1:8], normalize))
+
+split_size <- floor(0.75 *nrow(diabetes_select_norm))
+
+set.seed(123)
+index <- sample(seq_len(nrow(diabetes_select_norm)), size = split_size)
+
+train <- diabetes_select_norm[index,]
+test <- diabetes_select_norm[-index,]
+
+train_labels <- diabetes_select[index, 9]
+test_labels <- diabetes_select[-index, 9]
+
+dim(train)
+dim
+```
+
+Creation of KNN model with proper data encoding
+
+```{r}
+knn_test_pred <- knn(train = train, test = test, cl = train_labels, k = 3)
+
+confusion_knn <- table(test_labels, knn_test_pred)
+print(confusion_knn)
+```
+#Evaluation of KNN model results
+```{r}
+total_samples <- sum(confusion_knn)
+accuracy <- (confusion_knn[1,1] + confusion_knn[2,2]) / total_samples
+sensitivity <- confusion_knn[2,2] / (confusion_knn[2,2] + confusion_knn[2,1]) 
+specificity <- confusion_knn[1,1] / (confusion_knn[1,1] + confusion_knn[1,2])
+precision <- confusion_knn[2,2] / (confusion_knn[2,2] + confusion_knn[1,2])
+f1_score <- 2 * ((precision * sensitivity) / (precision + sensitivity))
+
+cat("Accuracy:", accuracy, "\n")
+cat("Sensitivity (Recall):", sensitivity, "\n")
+cat("Precision:", precision, "\n")
+cat("F1 Score:", f1_score, "\n")
+```
+
+Here, we see a good accuracy of 74.47%. This means that it has a failure rate of 25.13% for the KNN model. This model has difficulty in correctly classifying positive cases which is depicted by the sensitivity value. Optimizing sensitivity is encouraged, without sacrificing precision.
+
+#Evalution with K-fold cross validation method
+
+```{r}
+# Split the dataset
+diabetes_select$Outcome <- as.factor(diabetes_select$Outcome)
+
+split_size2 <- floor(0.75 * nrow(diabetes_select))
+set.seed(123)
+index2 <- sample(seq_len(nrow(diabetes_select)), size = split_size2)
+
+diabetes_select$Outcome <- as.factor(diabetes_select$Outcome)
+
+split_size2 <- floor(0.75 * nrow(diabetes_select))
+set.seed(123)
+index2 <- sample(seq_len(nrow(diabetes_select)), size = split_size2)
+
+diabetes_train <- diabetes_select[index, ]
+diabetes_test <- diabetes_select[-index, ]
+
+# Defining training control with 5 number for 5 cross validation
+trCtrl <- trainControl(method = "cv", number = 5)
+
+# Applying KNN with caret and pre-processing
+set.seed(123)
+knn_caret <- train(Outcome ~ ., data = diabetes_train, 
+                         method = "knn", 
+                         trControl = trCtrl,
+                         preProcess = c("center", "scale"),
+                         tuneLength = 10)
+
+# Predict on test data
+diabetes_test_pred_caret <- predict(knn_caret, newdata = diabetes_test)
+confusionMatrix(diabetes_test_pred_caret, diabetes_test$Outcome)
+```
+#Model tuning for KNN to find optimal k value and adjusting model complexity
+```{r}
+knn_results <- knn_caret$results
+ggplot(data = knn_results, aes(x = k, y = Accuracy)) +
+  geom_line() +
+  ggtitle("Accuracy vs k Value for KNN") +
+  xlab("k Value") +
+  ylab("Accuracy")
+```
+
+When k=19 we get the highest accuracy of 77%.
+
+#cross validation
+```{r}
+optimal_k <- knn_results$k[which.max(knn_results$Accuracy)]
+control <- trainControl(method = "cv", number = 5) # 5-fold CV
+cv_model <- train(Outcome ~ ., data = diabetes_train, method = "knn", 
+                 tuneGrid = data.frame(k = optimal_k), trControl = control)
+print(cv_model)
+```
+
+Creation of SVM model with proper data encoding
+
+```{r}
+#split the dataset
+
+diabetes_select$Outcome <- as.factor(diabetes_select$Outcome)
+
+split_size2 <- floor(0.75 * nrow(diabetes_select))
+set.seed(123)
+index2 <- sample(seq_len(nrow(diabetes_select)), size = split_size2)
+
+diabetes_train <- diabetes_select[index2, ]
+diabetes_test <- diabetes_select[-index2, ]
+
+#Training the SVM using a linear kernel
+svm_model <- svm(Outcome ~ .,data=diabetes_train, kernel='linear')
+
+#getting predictions for the tested dataset using the tranined model
+svm_pred <- predict(svm_model, diabetes_test)
+
+#Evaluating model performance
+svm_result <- confusionMatrix(svm_pred, diabetes_test$Outcome)
+print(svm_result)
+```
+The accuracy is pretty much the same as that of KNN result, around 75%. However using SVM yielded a better sensitivity of 0.8880.
+
+#Model tuning for svm
+```{r}
+tune_grid <- expand.grid(cost = 10^(-1:2), gamma = c(0.5,1,2))
+
+tune_out <- tune(svm, Outcome ~., data = diabetes_train, kernel = "radial", ranges= tune_grid)
+
+print(tune_out$best.model)
+```
+
+Random Forest model
+```{r}
+#training the model using 100 ntree iterations
+rf_model<- randomForest(Outcome ~ ., data=diabetes_train, ntree=100)
+
+#prediction on test dataset using trained model
+rf_pred <- predict(rf_model, diabetes_test)
+print(rf_model$bestTune)
+#Evaluate performance
+rf_result <- confusionMatrix(rf_pred, diabetes_test$Outcome)
+print(rf_result)
+```
+
+#Model tuning for random forest
+```{r}
+train_control <- trainControl(method = "cv", number = 5)
+model <- train(Outcome ~., data = diabetes_train, trControl = train_control, method = "rf")
+rf_pred2 <- predict(model, diabetes_test)
+rf_result2 <- confusionMatrix(rf_pred2, diabetes_test$Outcome)
+print(rf_result2)
+```
+#comparing all models based on their sensitivity, accuracy and specificity values
+
+#Accuracy comparison
+```{r}
+accuracy_df <- data.frame(model_name=c("SVM", "Random Forest", "k-NN"),  
+                            Accuracy=c(0.7604, 0.7344, 0.7552083))
+
+ggplot(accuracy_df, aes(x=model_name, y=Accuracy)) + geom_bar(stat = "identity", fill = "maroon") + labs(x="Models", y="Accuracy", title = "Model evaluation") + theme(plot.title = element_text(hjust = 0.5))
+```
+
+#Sensitivity comparison
+```{r}
+sensitivity_df <- data.frame(model_name=c("SVM", "Random Forest", "k-NN"),  
+                            sensitivity=c(0.8880, 0.8560, 0.8800))
+
+ggplot(sensitivity_df, aes(x=model_name, y=sensitivity)) + geom_bar(stat = "identity", fill = "darkblue") + labs(x="Models", y="Sensitivity", title = "Model evaluation") + theme(plot.title = element_text(hjust = 0.5))
+```
+
+#Specificity comparison
+```{r}
+specificity_df <- data.frame(model_name=c("SVM", "Random Forest", "k-NN"),  
+                            specificity=c(0.5224,0.5075, 0.4179))
+
+ggplot(specificity_df, aes(x=model_name, y=specificity)) + geom_bar(stat = "identity", fill = "darkred") + labs(x="Models", y="Specificity", title = "Model evaluation") + theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+From the above graphs, it is 100% clear that SVM outright wins overall having the best specificity, accuracy and sensitivity. It would be the pick of our model for choosing to predict a patients outcome.
+
+Construction of an ensemble model 
+```{r}
+#creating a function predictOutcomeDiabetes that uses all three methods I used above 
+predictOutcomeDIabetes <- function(test_data_new) {
+  
+  diabetes_test_pred_caret <- predict(knn_caret, newdata=test_data_new)
+  
+  svm_pred <- predict(svm_model,test_data_new, type = "response")
+  
+  
+  rf_pred <- predict(rf_model, test_data_new, type = "class")
+  
+  
+  
+  return (ifelse(diabetes_test_pred_caret==1 & svm_pred==1,"Y",
+            ifelse(svm_pred==1 & rf_pred==1,"Y",
+            ifelse(diabetes_test_pred_caret==1 & rf_pred==1,"Y",'N'))))
+}
+```
+
+```{r}
+#creating a new test data to be used while calling the ensemble function
+test_data_new <- data.frame(Pregnancies=5,Glucose=160,BloodPressure=60,	SkinThickness=20,	Insulin=130,	BMI=50,	DiabetesPedigreeFunction=3.3,	Age=55)
+```
+
+Application of ensemble to make a prediction
+```{r}
+#calling the function
+predictOutcomeDIabetes(test_data_new)
+```
+#Conclusion: The patient with new_data_new is found to be diabetic as we get a result of "Y" or yes. This was in a way predictable as he had high Glucose, Insulin levels and a above average BMI but taking every feature into account our ensemble model predicted perfectly and is quite efficient in predicting teh results for any new data.
